@@ -1,0 +1,20 @@
+from prometheus_client import Counter, Gauge
+
+# Define Prometheus counters for success and failure counts
+ping_success_counter = Counter('ping_success_count', 'Number of successful pings')
+ping_failure_counter = Counter('ping_failure_count', 'Number of failed pings')
+redis_failure_counter = Counter('redis_failure_count', 'Number of failed redis connections')
+redis_duplicate_counter = Counter('redis_duplicate_count', 'Number of failed redis duplicate lock attempt')
+minio_connection_fail_counter = Counter('minio_connection_fail_count', 'Number of minio failed connection attempts')
+minio_upload_fail_counter = Counter('minio_upload_fail_count', 'Number of minio failed file upload attempts', ['bucket_name'])
+minio_upload_success_counter = Counter('minio_upload_success_count', 'Number of minio successful file uploads', ['bucket_name'])
+minio_get_stream_fail_counter = Counter('minio_connection_get_stream_count', 'Number of minio failed file downloads', ['bucket_name','object_name'])
+minio_get_stream_success_counter = Counter('minio_connection_get_stream_success_count', 'Number of minio successful file downloads', ['bucket_name'])
+file_upload_success_counter = Counter('file_upload_success_count', 'Number of successful file uploads', ['bucket_name'])
+file_upload_fail_counter = Counter('file_upload_fail_count', 'Number of failed file uploads', ['bucket_name', 'object_name'])
+file_download_success_counter = Counter('file_download_success_count', 'Number of successful file downloads', ['bucket_name'])
+file_download_fail_counter = Counter('file_download_fail_count', 'Number of failed file downloads', ['bucket_name', 'object_name'])
+get_stats_fail_counter = Counter('get_stats_fail_count', 'Number of failed file stats', ['bucket_name', 'object_name'])
+get_stats_success_counter = Counter('get_stats_success_count', 'Number of successful file stats', ['bucket_name'])
+get_pdf_image_success_counter = Counter('get_pdf_image_success_count', 'Number of successful pdf to image conversion', ['bucket_name'])
+get_pdf_image_fail_counter = Counter('get_pdf_image_fail_count', 'Number of minio failed pdf to image  conversion', ['bucket_name', 'object_name'])
