@@ -4,7 +4,7 @@ from src.utils.common import get_unique_19_digit_id
 
 class TestFunctions(unittest.TestCase):
     
-    @patch('src.utils.common.get_redis_connection')
+    @patch('src.utils.common.initialize_redis_client')
     def test_get_unique_19_digit_id(self, mock_redis_conn):
         # Mock the Redis client and its methods
         redis_client = MagicMock()

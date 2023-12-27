@@ -1,7 +1,7 @@
 from flask import current_app
 import redis
 
-def get_redis_connection():
+def initialize_redis_client():
     try:
         if 'redis' not in current_app.config:
             current_app.config['redis'] = redis.StrictRedis(
@@ -11,4 +11,4 @@ def get_redis_connection():
             )
         return current_app.config['redis']
     except Exception as e:
-        print(f"Failed to connect to Redis redis {e}")
+        print(f"Failed to connect to redis {e}")

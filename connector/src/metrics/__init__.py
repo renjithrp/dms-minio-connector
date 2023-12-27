@@ -17,4 +17,4 @@ file_download_fail_counter = Counter('file_download_fail_count', 'Number of fail
 get_stats_fail_counter = Counter('get_stats_fail_count', 'Number of failed file stats', ['bucket_name', 'object_name'])
 get_stats_success_counter = Counter('get_stats_success_count', 'Number of successful file stats', ['bucket_name'])
 get_pdf_image_success_counter = Counter('get_pdf_image_success_count', 'Number of successful pdf to image conversion', ['bucket_name'])
-get_pdf_image_fail_counter = Counter('get_pdf_image_fail_count', 'Number of minio failed pdf to image  conversion', ['bucket_name', 'object_name'])
+get_pdf_image_fail_counter = Counter('get_pdf_image_fail_count', 'Number of minio failed pdf to image conversion', ['bucket_name', 'object_name'])

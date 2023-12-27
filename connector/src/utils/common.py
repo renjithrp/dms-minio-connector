@@ -1,6 +1,6 @@
 from flask import jsonify, make_response
 import requests
-from utils.redis import get_redis_connection
+from utils.redis import initialize_redis_client
 import time
 from flask import current_app
 from metrics import  redis_failure_counter, redis_duplicate_counter, ping_success_counter, ping_failure_counter
@@ -27,7 +27,7 @@ def file_response(data, code=200, headers=None):
 
 def get_unique_19_digit_id():
     try:
-        redis_client = get_redis_connection()
+        redis_client = initialize_redis_client()
     except Exception as e:
         print(f"Redis connection failed, get_unique_19_digit_id {e}")
         return None
@@ -78,7 +78,6 @@ def ping(url=None):
     server_name = current_app.config.get('DMS_SERVER_NAME')
     if url is None:
         url = f"{scheme}://{host}/minio/health/live"
-
     try:
         response = requests.get(url)
         if response.status_code == 200:
