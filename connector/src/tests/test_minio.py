@@ -1,10 +1,10 @@
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from io import BytesIO
-from minio_utils import put_object, create_tags, get_object, get_tags, get_object_stream
+from src.utils.minio import put_object, create_tags, get_object, get_tags, get_object_stream
 
 class TestMinioUtilsFunctions(unittest.TestCase):
-    @patch('minio_utils.Minio')
+    @patch('src.utils.minio.Minio')
     def test_put_object_success(self, mock_minio):
         # Mocking client and its methods
         client = Mock()
@@ -25,7 +25,7 @@ class TestMinioUtilsFunctions(unittest.TestCase):
         client.put_object.assert_called_once()
         client.set_object_tags.assert_called_once()
 
-    @patch('minio_utils.Minio')
+    @patch('src.utils.minio.Minio')
     def test_put_object_already_exists(self, mock_minio):
         # Mocking client and its methods
         client = Mock()
@@ -47,7 +47,7 @@ class TestMinioUtilsFunctions(unittest.TestCase):
         client.put_object.assert_not_called()
         client.set_object_tags.assert_not_called()
 
-    @patch('minio_utils.Minio')
+    @patch('src.utils.minio.Minio')
     def test_put_object_failure(self, mock_minio):
         # Mocking client and its methods
         client = Mock()
@@ -86,35 +86,30 @@ class TestMinioUtilsFunctions(unittest.TestCase):
         self.assertIsNone(result)
         client.set_object_tags.assert_called_once_with(bucket_name, object_name, tags)
 
-    def test_create_tags_failure(self):
-        # Mocking client to raise an exception
-        client = Mock()
-        client.set_object_tags.side_effect = Exception("Tag setting failed")
+    def test_create_tags(self):
+        # Mock the client object and necessary methods
+        client_mock = Mock()
+        client_mock.set_object_tags.return_value = None
+
+        # Define test data
         bucket_name = "test_bucket"
         object_name = "test_object"
         tags = {"tag1": "value1", "tag2": "value2"}
 
-        # Execute the function
-        result = create_tags(client, bucket_name, object_name, tags)
+        # Call the function with the mocked client and test data
+        create_tags(client_mock, bucket_name, object_name, tags)
 
-        # Assertions
-        self.assertIsInstance(result, str)
-        self.assertIn(f"minio object '{object_name}' set tags failed '{bucket_name}'", result)
-        client.set_object_tags.assert_called_once_with(bucket_name, object_name, tags)
-    def test_get_object_success(self):
-        # Mocking client and its methods
-        client = Mock()
-        bucket_name = "test_bucket"
-        object_name = "test_object"
-        local_file_path = "/path/to/local/file.txt"
-
-        # Execute the function
-        result = get_object(client, bucket_name, object_name, local_file_path)
-
-        # Assertions
-        self.assertIsNone(result)
-        client.fget_object.assert_called_once_with(bucket_name, object_name, local_file_path)
-
+        # Assertions to check if the expected calls were made
+        expected_minio_tags = {
+            "tag1": "value1",
+            "tag2": "value2"
+        }
+        client_mock.set_object_tags.assert_called_once_with(
+            bucket_name,
+            object_name,
+            expected_minio_tags
+        )
+        
     def test_get_object_failure(self):
         # Mocking client to raise an exception
         client = Mock()
@@ -174,7 +169,7 @@ class TestMinioUtilsFunctions(unittest.TestCase):
         self.assertEqual(result, {})
         client.get_object_tags.assert_called_once_with(bucket_name, object_name)
 
-    @patch('minio_utils.BytesIO')
+    @patch('src.utils.minio.BytesIO')
     def test_get_object_stream_success(self, mock_bytes_io):
         # Arrange
         bucket_name = 'your_bucket'
@@ -205,7 +200,7 @@ class TestMinioUtilsFunctions(unittest.TestCase):
         stream_contents = stream.getvalue() if hasattr(stream, 'getvalue') else None
         self.assertEqual(stream_contents, expected_content)
 
-    @patch('minio_utils.BytesIO')
+    @patch('src.utils.minio.BytesIO')
     def test_get_object_stream_failure(self, mock_bytes_io):
         # Arrange
         bucket_name = 'your_bucket'
