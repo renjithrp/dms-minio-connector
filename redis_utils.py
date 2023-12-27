@@ -11,4 +11,4 @@ def get_redis_connection():
             )
         return current_app.config['redis']
     except Exception as e:
-        print(f"Failed to connect to Redis redis {e}")
+        print(f"Failed to connect to redis {e}")

@@ -6,6 +6,7 @@ from prometheus_client import start_http_server
 
 storage = Storage()
 app = Flask(__name__)
+# TODO: Add environment variable
 app.config.from_object('config.DevelopmentConfig')
 
 @app.before_request
@@ -18,9 +19,9 @@ def init_storage():
 # Endpoint to handle binary data upload
 @app.route('/dss/api/put/<tenant_id>', methods=['GET', 'POST', 'PUT'])
 def upload_binary_data(tenant_id):
-    if 'bin' not in request.files:
+    if 'bin' not in request.files: # TODO: guard the bin eg: if let binary_data = request.files['bin'].read()
         print("error")
-        return jsonify({'error': 'No data part'}), 400
+        return jsonify({'error': 'No data part'}), 400 # TODO: change to meaningful message
     binary_data = request.files['bin'].read()
     tags = {"tenant_id": tenant_id}
     file_id = get_unique_19_digit_id()

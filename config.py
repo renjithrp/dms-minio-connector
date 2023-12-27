@@ -7,7 +7,7 @@ class DevelopmentConfig(Config):
     # Minio configuration for development environment
     MINIO_ACCESS_KEY='' # Minio user name / access key
     MINIO_SECRET_KEY='' # Minio user password / secret key
-    MINIO_SERVER='' # Minio server url in <hosname:port> format
+    MINIO_SERVER='' # Minio server url in <hostname:port> format
     MINIO_BUCKET_NAME='' # Update with the bucket name
     # Redis configuration
     REDIS_SERVER='' # Redis server address
