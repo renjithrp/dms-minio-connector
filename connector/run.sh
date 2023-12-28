@@ -7,7 +7,7 @@ set_pythonpath() {
 }
 
 load_environment() {
-    source "$(dirname "$0")/env" 2> /dev/null || source "$(dirname "$0")/env" # For macOS environments
+    source "$(dirname "$0")/env"
 }
 
 start_server() {
