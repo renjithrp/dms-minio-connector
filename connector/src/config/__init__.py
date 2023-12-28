@@ -10,3 +10,4 @@ class Config():
     REDIS_PORT = os.environ.get('REDIS_PORT', 6379)
     # DMS configuration
     DMS_SERVER_NAME = os.environ.get('DMS_SERVER_NAME', 'A.1')
+    METRICS_TOKEN = os.environ.get('METRICS_TOKEN')

@@ -1,4 +1,4 @@
-export BIND_ADDRESS='127.0.0.1:9081'
+export BIND_ADDRESS='0.0.0.0:9082' # Connector listening address
 export MINIO_ACCESS_KEY='' # Minio user name / access key
 export MINIO_SECRET_KEY='' # Minio user password / secret key
 export MINIO_SERVER='' # Minio server url in <hostname:port> format
@@ -8,3 +8,4 @@ export REDIS_SERVER='' # Redis server address
 export REDIS_PORT=6379
 # DMS configuration
 export DMS_SERVER_NAME='A.1' # DMS Server name / ID
+export METRICS_TOKEN='random-token' # Bearer token to authenticate /metrics endpoint
