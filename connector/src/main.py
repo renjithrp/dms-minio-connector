@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 from utils.storage import Storage
 from utils.common import ping, get_unique_19_digit_id, json_response
 from utils.redis import initialize_redis_client
@@ -64,5 +64,18 @@ def metrics():
     from prometheus_client import generate_latest
     return generate_latest(), 200, {'Content-Type': 'text/plain; version=0.0.4'}
 
+# Authentication function to check the bearer token
+def authenticate():
+    token = request.headers.get('Authorization')
+    if token is None or token != f"Bearer {SECRET_TOKEN}":
+        abort(401)  # Unauthorize
+        
+# Register the authentication function before processing each request
+@app.before_request
+def before_request():
+    if request.endpoint == 'metrics':
+        authenticate()
+
 if __name__ == '__main__':
     app.run(debug=True, port=9082, host="0.0.0.0")
+
