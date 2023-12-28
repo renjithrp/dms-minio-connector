@@ -67,8 +67,10 @@ def metrics():
 # Authentication function to check the bearer token
 def authenticate():
     token = request.headers.get('Authorization')
-    if token is None or token != f"Bearer {SECRET_TOKEN}":
-        abort(401)  # Unauthorize
+    expected_token = app.config.get('METRICS_TOKEN')
+
+    if not (token and token == f"Bearer {expected_token}"):
+        abort(401)  # Unauthorized
         
 # Register the authentication function before processing each request
 @app.before_request
