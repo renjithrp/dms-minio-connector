@@ -3,13 +3,10 @@ from io import BytesIO
 import PyPDF2
 from flask import  send_file
 from pdf2image import convert_from_bytes
-from utils.common import file_response, json_response, generate_extension_from_content_type
+from utils.common import file_response, json_response
 from flask import current_app
 from metrics import * 
-from PIL import Image
 import threading
-
-
 
 class Storage:
     def __init__(self):
@@ -102,7 +99,6 @@ class Storage:
             images[0] = images[0].resize((new_width, new_height))
             images[0].save(image_stream, 'PNG')
             image_stream.seek(0)
-            get_pdf_image_success_counter.labels(bucket_name=self.bucket_name).inc()
             return image_stream
         else:
             return None
@@ -116,7 +112,6 @@ class Storage:
             try:
                 cache_stream, content_type, _ = get_object_stream(self.client, self.bucket_name, cache_image_file, BytesIO())
                 cache_stream.seek(0)
-                print(content_type)
                 return send_file(cache_stream, mimetype='image/png',download_name=cache_image_file)
             except:
                 pass
