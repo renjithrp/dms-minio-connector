@@ -1,0 +1,17 @@
+[Unit]
+Description=DMS Minio Connector service
+After=network.target
+
+[Service]
+User=minio
+Group=minio
+WorkingDirectory=/usr/local/minio-connector/connector
+Environment="PYTHONPATH=/usr/local/minio-connector/connector/src"
+ExecStart=/usr/local/minio-connector/connector/run.sh
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
