@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, abort
 from utils.storage import Storage
 from utils.common import ping, get_unique_19_digit_id, json_response
-from utils.redis import initialize_redis_client
+from utils.redis import initialize_redis_client, initialize_redis_queue
 
 storage = Storage()
 app = Flask(__name__)
@@ -14,6 +14,9 @@ def initialize_services():
     """
     # Initialize Redis connection
     initialize_redis_client()
+
+    # nitialize Redis queue
+    initialize_redis_queue()
 
     # Initialize storage client
     storage.initialize_client()
@@ -51,12 +54,12 @@ def get_pdf_file(file_id):
 
 # Endpoint to handle pdf to image conversion
 @app.route('/dss/api/getimage/<file_id>/<int:page_number>', methods=['GET'])
-def get_pdf_image(file_id, page_number):
+def get_content_preview(file_id, page_number):
     scale = float(request.args.get('scale', 1.0))
     if scale > 2:
         scale = float(2)
     storage.initialize_client()
-    return storage.get_pdf_image(file_id, page_number=page_number, scale=scale)
+    return storage.get_content_preview(file_id, page_number=page_number, scale=scale)
 
 # Endpoint for app metrics
 @app.route('/metrics')

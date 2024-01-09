@@ -91,3 +91,30 @@ def ping(url=None):
         ping_failure_counter.inc()  # Increment failure count metric
         print(f"Failed to connect to MinIO: {e}")
         return json_response({"error": True, "errorCode": 1, "msg": "!DSS", "data": {"server_name": server_name}})
+    
+
+def generate_extension_from_content_type(content_type):
+    mime_to_extension = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/tiff': '.tiff',
+        'image/bmp': '.bmp',
+        'application/pdf': '.pdf',
+        'text/plain': '.txt',
+        'video/mp4': '.mp4',
+        'video/mpeg': '.mpeg',
+        'video/quicktime': '.mov',
+        'video/x-msvideo': '.avi',
+        'video/x-ms-wmv': '.wmv',
+        'video/x-flv': '.flv',
+        # Add more mappings as needed
+    }
+
+    # Check if the content-type exists in the mapping dictionary
+    extension = mime_to_extension.get(content_type)
+
+    if extension:
+        return extension
+    else:
+        return ""  # If content-type is not found in the mapping

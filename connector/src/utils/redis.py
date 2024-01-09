@@ -1,5 +1,6 @@
 from flask import current_app
 import redis
+from rq import Queue
 
 def initialize_redis_client():
     try:
@@ -12,3 +13,11 @@ def initialize_redis_client():
         return current_app.config['redis']
     except Exception as e:
         print(f"Failed to connect to redis {e}")
+
+def initialize_redis_queue():
+    try:
+        if 'queue' not in current_app.config:
+            current_app.config['queue'] = Queue(connection=current_app.config['redis'])
+        return current_app.config['queue']
+    except Exception as e:
+         print(f"Failed to connect to redis {e}")
