@@ -1,4 +1,4 @@
-from utils.minio import connect_minio, put_object, create_tags, get_tags, get_object_stream, upload_object_with_retension, create_bucket_if_not_exists
+from utils.minio import connect_minio, put_object, create_tags, get_tags, get_object_stream, upload_object_with_retention
 from io import BytesIO
 import PyPDF2
 from flask import  send_file
@@ -6,9 +6,12 @@ from pdf2image import convert_from_bytes
 from utils.common import file_response, json_response
 from flask import current_app
 from metrics import * 
-import threading
-from PIL import Image
-from utils.redis import initialize_redis_client
+from concurrent.futures import ThreadPoolExecutor
+from PIL import Image, ImageDraw, ImageFont
+from pdf2image import convert_from_bytes
+from docx2pdf import convert
+from docx import Document
+from spire.doc import Document as SpireDocument, ImageType
 
 class Storage:
     def __init__(self):
@@ -24,7 +27,9 @@ class Storage:
             tags = {}
         tags["deleted"] = "false"
         tags["content_status"] = "PROCESSED"
+        print("upload-started")
         error = put_object(self.client, self.bucket_name, object_name, data, tags)
+        print("upload-started")
         if error is not None:
             create_tags(self.client, self.bucket_name, object_name, {"deleted": "true"})
             print(error)
@@ -96,71 +101,194 @@ class Storage:
             return json_response(error_data, 202)
         
     def pdf_stream_to_image(self, stream, page_number=1, scale=1.4):
-        images = convert_from_bytes(stream.read(), first_page=page_number, last_page=page_number)  
-        image_stream = BytesIO() 
+        images = convert_from_bytes(stream.read(), first_page=page_number, last_page=page_number)
+        
         if images:
-            new_width = int(images[0].width * scale)
-            new_height = int(images[0].height * scale)
-            images[0] = images[0].resize((new_width, new_height))
-            images[0].save(image_stream, 'JPEG', quality=40,optimize=True)
+            image = images[0].resize((int(images[0].width * scale), int(images[0].height * scale)))
+            image_stream = BytesIO()
+            image.save(image_stream, 'JPEG', quality=40, optimize=True)
             image_stream.seek(0)
             return image_stream
         else:
             return None
-    def create_cache_image(self, object_name, data, content_type):
+
+    def create_cache_image(self, redis_client, minio_client, cache_bucket_name, object_name, data, content_type):
+        if redis_client is None:
+            print("Redis connection error")
+            return
+
         try:
-            redis_client = initialize_redis_client()
+            lock_acquired = redis_client.set(object_name, 'lock_value', nx=True, px=35000)  # Lock expires in 35 seconds
         except Exception as e:
-            print(f"Redis connection failed, image cache lock {e}")
-            return None
-        try:
-            lock_acquired = redis_client.set(object_name, 'lock_value', nx=True, px=35000)  # Lock expires in 5 seconds
-        except Exception as e:
-            print(f"Redis set lock failed for cache job,  {object_name} {e}")
-            return None
+            print(f"Redis set lock failed for cache job, {object_name}: {e}")
+            return
+
         if lock_acquired:
-            redis_client.set(object_name, True)
             try:
-                upload_object_with_retension(self.client, self.cache_bucket_name, object_name, data, content_type)
+                print("Creating cache image")
+                upload_object_with_retention(minio_client, cache_bucket_name, object_name, data, content_type)
             finally:
                 redis_client.delete(object_name)
 
-    def get_content_preview(self, file_id, page_number=1, scale=1.4):
-        object_name = f'{file_id}'
-        cache_image_file = f'{file_id}_page_{page_number}.jpeg'
-        try:
-            cache_stream, content_type, _ = get_object_stream(self.client, self.cache_bucket_name, cache_image_file, BytesIO())
-            cache_stream.seek(0)
+    def calculate_size_kb(self, image):
+        with BytesIO() as temp_stream:
+            image.save(temp_stream, format='JPEG', quality=100, optimize=True)
+            size_kb = len(temp_stream.getvalue()) / 1024
+        return size_kb
 
-            if cache_stream:
-                print("from cache")
-                return send_file(cache_stream, mimetype='image/jpeg',download_name=cache_image_file)
-        except:
-            print("not from cache")
-            pass
-        stream, content_type, _ = get_object_stream(self.client, self.bucket_name, object_name, BytesIO())
-        stream.seek(0)
-        if content_type == 'application/pdf':
-            image_stream = self.pdf_stream_to_image(stream, page_number, scale=scale)
-            if image_stream is not None:
-                get_pdf_image_success_counter.labels(bucket_name=self.bucket_name).inc()
-                file_upload_thread = threading.Thread(target=self.create_cache_image,  args=(cache_image_file, image_stream.getvalue(), content_type))
-                file_upload_thread.start()
-                return send_file(image_stream, mimetype='image/jpeg',download_name=cache_image_file)
-            else: 
-                get_pdf_image_fail_counter.labels(file_id=file_id, bucket_name = self.bucket_name).inc()
-                return None
-        elif content_type.startswith('image/'):
+    def calculate_optimal_quality(self, image, target_size_kb, current_size_kb):
+        if current_size_kb <= target_size_kb:
+            return 100  # No need to reduce quality
+
+        quality = int((target_size_kb / current_size_kb) * 100)
+        return max(min(quality, 95), 1)  # Ensure quality is between 1 and 95
+
+    def get_content_preview(self, file_id, page_number=1, scale=1.4):
+        cache_image_file = f'{file_id}_page_{page_number}.jpeg'
+        
+        with current_app.app_context():
+            redis_client = current_app.config['redis']
+
             try:
-                print("no cache")
-                image = Image.open(stream)
-                output_stream = BytesIO()
-                image.save(output_stream, format='JPEG', quality=40, optimize=True)
-                output_stream.seek(0)
-                file_upload_thread = threading.Thread(target=self.create_cache_image,  args=(cache_image_file, output_stream.getvalue(), content_type))
-                file_upload_thread.start()
-                return send_file(output_stream, mimetype=content_type,download_name=f'{file_id}')
-            except:
-                return send_file(stream, mimetype=content_type,download_name=f'{file_id}')
+                cache_stream, content_type, _ = get_object_stream(self.client, self.cache_bucket_name, cache_image_file, BytesIO())
+                cache_stream.seek(0)
+
+                if cache_stream:
+                    print("From cache")
+                    return send_file(cache_stream, mimetype='image/jpeg', download_name=cache_image_file)
+            except Exception as cache_exception:
+                print(f"Error checking cache: {cache_exception}")
+
+            print("Not from cache")
+            stream, content_type, _ = get_object_stream(self.client, self.bucket_name, file_id, BytesIO())
+            stream.seek(0)
+            print(content_type)
+            if content_type == 'application/pdf':
+                return self.process_pdf(redis_client, file_id, cache_image_file, stream, page_number, scale)
+            elif content_type.startswith('image/'):
+                return self.process_image(redis_client, file_id, self.cache_bucket_name, cache_image_file, stream, content_type)
+            elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+                #return self.process_doc_page(redis_client, file_id, self.cache_bucket_name, cache_image_file, stream, content_type, page_number)
+                return self.process_doc_page(redis_client, file_id, self.cache_bucket_name, cache_image_file, stream, content_type, page_number)
+            else:
+                return None
+
+    def process_pdf(self, redis_client, file_id, cache_image_file, stream, page_number, scale):
+        image_stream = self.pdf_stream_to_image(stream, page_number, scale=scale)
+
+        if image_stream:
+            get_pdf_image_success_counter.labels(bucket_name=self.bucket_name).inc()
+            with ThreadPoolExecutor() as executor:
+                future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, cache_image_file, image_stream.getvalue(), 'image/jpeg')
+
+            return send_file(image_stream, mimetype='image/jpeg', download_name=cache_image_file)
         else:
+            get_pdf_image_fail_counter.labels(file_id=file_id, bucket_name=self.bucket_name).inc()
             return None
+        
+    def process_image(self, redis_client, file_id, cache_bucket_name, cache_image_file, stream, content_type):
+        try:
+            print("No cache")
+            with Image.open(stream) as image:
+                rgb = image.convert("RGB")
+                output_stream = BytesIO()
+
+                # Adjust quality based on the desired size
+                target_size_kb = 1024  # Set your target size in kilobytes
+                current_size_kb = self.calculate_size_kb(rgb)
+                quality = self.calculate_optimal_quality(rgb, target_size_kb, current_size_kb)
+                print("Quality:", quality)
+
+                rgb.save(output_stream, format='JPEG', quality=quality, optimize=True)
+                output_stream.seek(0)
+
+                with ThreadPoolExecutor() as executor:
+                    future = executor.submit(self.create_cache_image, redis_client, self.client, cache_bucket_name, cache_image_file, output_stream.getvalue(), content_type)
+
+                return send_file(output_stream, mimetype=content_type, download_name=f'{file_id}')
+        except Exception as e:
+            print(f"Error: {e}")
+            return send_file(stream, mimetype=content_type, download_name=f'{file_id}')
+        
+    def process_doc_page(self, redis_client, file_id, cache_bucket_name, cache_image_file, stream, content_type, page_number=1):
+        try:
+            print(f"Processing DOC Page {page_number}")
+            temp_file_path = f"{file_id}.docx"
+            with open(temp_file_path, "wb") as temp_file:
+                temp_file.write(stream.getvalue())
+            doc_image = self.extract_doc_page_image(temp_file_path, page_number)
+            if doc_image:
+                image_stream = doc_image
+                image_stream.seek(0)
+
+                with ThreadPoolExecutor() as executor:
+                    future = executor.submit(self.create_cache_image, redis_client, self.client, cache_bucket_name, cache_image_file, image_stream, content_type)
+
+                return send_file(image_stream, mimetype=content_type, download_name=f'{file_id}_page_{page_number}.jpg')
+            else:
+                print(f"No content found on DOC Page {page_number}")
+                return None
+        except Exception as e:
+            print(f"Error processing DOC Page {page_number}: {e}")
+            return None
+
+    def extract_doc_page_image(self, doc_file, page_number):
+        spire_doc = SpireDocument()
+        spire_doc.LoadFromFile(doc_file)
+        image_streams = spire_doc.SaveImageToStreams(0, page_number, ImageType.Bitmap)
+        # Save each image stream to a JPG file
+        i = 1
+        for image in image_streams:
+            image_name = str(i) + ".jpg"
+            with open(image_name,'wb') as image_file:
+                image_file.write(image.ToArray())
+            i += 1
+
+        # Close the document
+        spire_doc.Close()
+        return image_streams
+
+    # def process_doc_page(self, redis_client, file_id, cache_bucket_name, cache_image_file, stream, content_type, page_number=1):
+    #     try:
+    #         print(f"Processing DOC Page {page_number}")
+    #         doc_text = self.extract_doc_page_text(stream, page_number)
+
+    #         if doc_text:
+    #             image_stream = self.text_to_image(doc_text)
+    #             image_stream.seek(0)
+
+    #             with ThreadPoolExecutor() as executor:
+    #                 future = executor.submit(self.create_cache_image, redis_client, self.client, cache_bucket_name, cache_image_file, image_stream.getvalue(), content_type)
+
+    #             return send_file(image_stream, mimetype=content_type, download_name=f'{file_id}_page_{page_number}.jpg')
+    #         else:
+    #             print(f"No content found on DOC Page {page_number}")
+    #             return None
+    #     except Exception as e:
+    #         print(f"Error processing DOC Page {page_number}: {e}")
+    #         return None
+
+    # def extract_doc_page_text(self, doc_stream, page_number):
+    #     doc = Document(BytesIO(doc_stream.read()))
+    #     full_text = []
+
+    #     for i, paragraph in enumerate(doc.paragraphs):
+    #         if i >= (page_number - 1) * 10 and i < page_number * 10:  # Adjust based on the average number of paragraphs per page
+    #             full_text.append(paragraph.text)
+
+    #     return '\n'.join(full_text)
+
+    # def text_to_image(self, text):
+    #     image = Image.new('RGB', (800, 600), color='white')  # Adjust dimensions as needed
+    #     draw = ImageDraw.Draw(image)
+    #     font = ImageFont.load_default()
+
+    #     lines = text.split('\n')
+    #     y = 10
+    #     for line in lines:
+    #         draw.text((10, y), line, fill='black', font=font)
+    #         y += 15
+
+    #     image_stream = BytesIO()
+    #     image.save(image_stream, format='JPEG', quality=95)
+    #     return image_stream

@@ -5,6 +5,7 @@ import time
 from flask import current_app
 from metrics import  redis_failure_counter, redis_duplicate_counter, ping_success_counter, ping_failure_counter
 
+
 def json_response(data, code=200, headers=None):
     if headers is None:
         headers = {}
@@ -118,3 +119,4 @@ def generate_extension_from_content_type(content_type):
         return extension
     else:
         return ""  # If content-type is not found in the mapping
+    

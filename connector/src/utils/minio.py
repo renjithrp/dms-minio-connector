@@ -46,6 +46,7 @@ def create_bucket_if_not_exists(client, bucket_name, object_lock=False):
         print(f"Bucket creation failed {bucket_name} {e}")
 
 
+
 def get_content_type(data):
     try:
         mime = magic.Magic(mime=True)
@@ -58,10 +59,10 @@ def upload_object(client, bucket_name, object_name, data, content_type):
     data_stream = io.BytesIO(data)
     client.put_object(bucket_name, object_name, data_stream, len(data), content_type=content_type)
 
-def upload_object_with_retension(client, bucket_name, object_name, data, content_type):
+def upload_object_with_retention(client, bucket_name, object_name, data, content_type):
     date = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0,) + timedelta(days=30)
     data_stream = io.BytesIO(data)
-    client.put_object(bucket_name, object_name, data_stream, len(data), content_type=content_type, retention=Retention(GOVERNANCE, date))
+    client.put_object(bucket_name, object_name, data_stream, len(data), content_type=content_type, retention=Retention(GOVERNANCE, date), legal_hold=True)
 
 def put_object(client, bucket_name, object_name, data, tags=None):
     if tags is None:
