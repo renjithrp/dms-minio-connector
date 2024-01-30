@@ -12,7 +12,7 @@ load_environment() {
 
 start_server() {
     local bind_address="${BIND_ADDRESS:=127.0.0.1:9081}"
-    gunicorn --bind "$bind_address" wsgi:app
+    gunicorn --bind "$bind_address" --worker-class gevent --worker-connections 2000 wsgi:app
 }
 
 main() {
