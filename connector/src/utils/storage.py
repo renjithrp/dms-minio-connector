@@ -10,9 +10,6 @@ from metrics import *
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageDraw, ImageFont
 from pdf2image import convert_from_bytes, convert_from_path
-from docx2pdf import convert
-from docx import Document
-from spire.doc import Document as SpireDocument, ImageType
 from utils.convert import convert_to_pdf_soffice
 
 class Storage:
