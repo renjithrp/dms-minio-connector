@@ -1,5 +1,6 @@
 from utils.minio import connect_minio, put_object, create_tags, get_tags, get_object_stream, upload_object_with_retention
 from io import BytesIO
+import os
 import PyPDF2
 from flask import  send_file
 from pdf2image import convert_from_bytes
@@ -8,10 +9,11 @@ from flask import current_app
 from metrics import * 
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageDraw, ImageFont
-from pdf2image import convert_from_bytes
+from pdf2image import convert_from_bytes, convert_from_path
 from docx2pdf import convert
 from docx import Document
 from spire.doc import Document as SpireDocument, ImageType
+from utils.convert import convert_to_pdf_soffice
 
 class Storage:
     def __init__(self):
@@ -66,6 +68,8 @@ class Storage:
             if content_type == 'application/pdf':
                 pdf_reader = PyPDF2.PdfReader(stream)
                 page_length = len(pdf_reader.pages)
+            elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+                page_length = self.get_doc_page_count(file_id, stream)
 
             data = {
                 "tenant_id": tags.get('tenant_id'),
@@ -168,8 +172,7 @@ class Storage:
             elif content_type.startswith('image/'):
                 return self.process_image(redis_client, file_id, self.cache_bucket_name, cache_image_file, stream, content_type)
             elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
-                #return self.process_doc_page(redis_client, file_id, self.cache_bucket_name, cache_image_file, stream, content_type, page_number)
-                return self.process_doc_page(redis_client, file_id, self.cache_bucket_name, cache_image_file, stream, content_type, page_number)
+                return self.process_doc_page(redis_client, file_id, stream, scale=scale, page_number=page_number)
             else:
                 return None
 
@@ -210,85 +213,49 @@ class Storage:
             print(f"Error: {e}")
             return send_file(stream, mimetype=content_type, download_name=f'{file_id}')
         
-    def process_doc_page(self, redis_client, file_id, cache_bucket_name, cache_image_file, stream, content_type, page_number=1):
+    def get_doc_page_count(self, file_id, stream):
         try:
-            print(f"Processing DOC Page {page_number}")
+            print(f"Processing DOC")
             temp_file_path = f"{file_id}.docx"
-            with open(temp_file_path, "wb") as temp_file:
-                temp_file.write(stream.getvalue())
-            doc_image = self.extract_doc_page_image(temp_file_path, page_number)
-            if doc_image:
-                image_stream = doc_image
-                image_stream.seek(0)
-
-                with ThreadPoolExecutor() as executor:
-                    future = executor.submit(self.create_cache_image, redis_client, self.client, cache_bucket_name, cache_image_file, image_stream, content_type)
-
-                return send_file(image_stream, mimetype=content_type, download_name=f'{file_id}_page_{page_number}.jpg')
-            else:
-                print(f"No content found on DOC Page {page_number}")
-                return None
+            if not os.path.exists(temp_file_path):
+                with open(temp_file_path, "wb") as temp_file:
+                    temp_file.write(stream.getvalue())
+            pdf_file = convert_to_pdf_soffice(temp_file_path)
+            with open(pdf_file, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                num_pages = len(reader.pages)
+            return num_pages
         except Exception as e:
-            print(f"Error processing DOC Page {page_number}: {e}")
+            Exception(f"Error reading PDF file page count: {e}")
+        
+    def process_doc_page(self, redis_client, file_id, stream, scale=1.4, page_number=1):
+        try:
+            print(f"Processing DOC")
+            temp_file_path = f"{file_id}.docx"
+            if not os.path.exists(temp_file_path):
+                with open(temp_file_path, "wb") as temp_file:
+                    temp_file.write(stream.getvalue())
+            pdf_file = convert_to_pdf_soffice(temp_file_path)
+            if pdf_file:
+                try:
+                    images = convert_from_path(pdf_file)
+                except Exception as e:
+                    raise Exception(f"Error in conversion: {e}")
+                for i, image in enumerate(images):
+                    current_page = i + 1
+                    resized_image = image.resize((int(image.width * scale), int(image.height * scale)))
+                    image_stream = BytesIO()
+                    resized_image.save(image_stream, 'JPEG', quality=40, optimize=True)
+                    image_stream.seek(0)
+                    resized_cache_image_file = f'{file_id}_page_{current_page}.jpeg'
+                    if current_page == page_number:
+                        image_to_return = image_stream
+                        cache_image_file = resized_cache_image_file
+                    #self.create_cache_image(redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
+                    with ThreadPoolExecutor() as executor:
+                        future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
+                        
+                return send_file(image_to_return, mimetype='image/jpeg', download_name=cache_image_file)
+        except Exception as e:
+            print(f"Error processing DOC")
             return None
-
-    def extract_doc_page_image(self, doc_file, page_number):
-        spire_doc = SpireDocument()
-        spire_doc.LoadFromFile(doc_file)
-        image_streams = spire_doc.SaveImageToStreams(0, page_number, ImageType.Bitmap)
-        # Save each image stream to a JPG file
-        i = 1
-        for image in image_streams:
-            image_name = str(i) + ".jpg"
-            with open(image_name,'wb') as image_file:
-                image_file.write(image.ToArray())
-            i += 1
-
-        # Close the document
-        spire_doc.Close()
-        return image_streams
-
-    # def process_doc_page(self, redis_client, file_id, cache_bucket_name, cache_image_file, stream, content_type, page_number=1):
-    #     try:
-    #         print(f"Processing DOC Page {page_number}")
-    #         doc_text = self.extract_doc_page_text(stream, page_number)
-
-    #         if doc_text:
-    #             image_stream = self.text_to_image(doc_text)
-    #             image_stream.seek(0)
-
-    #             with ThreadPoolExecutor() as executor:
-    #                 future = executor.submit(self.create_cache_image, redis_client, self.client, cache_bucket_name, cache_image_file, image_stream.getvalue(), content_type)
-
-    #             return send_file(image_stream, mimetype=content_type, download_name=f'{file_id}_page_{page_number}.jpg')
-    #         else:
-    #             print(f"No content found on DOC Page {page_number}")
-    #             return None
-    #     except Exception as e:
-    #         print(f"Error processing DOC Page {page_number}: {e}")
-    #         return None
-
-    # def extract_doc_page_text(self, doc_stream, page_number):
-    #     doc = Document(BytesIO(doc_stream.read()))
-    #     full_text = []
-
-    #     for i, paragraph in enumerate(doc.paragraphs):
-    #         if i >= (page_number - 1) * 10 and i < page_number * 10:  # Adjust based on the average number of paragraphs per page
-    #             full_text.append(paragraph.text)
-
-    #     return '\n'.join(full_text)
-
-    # def text_to_image(self, text):
-    #     image = Image.new('RGB', (800, 600), color='white')  # Adjust dimensions as needed
-    #     draw = ImageDraw.Draw(image)
-    #     font = ImageFont.load_default()
-
-    #     lines = text.split('\n')
-    #     y = 10
-    #     for line in lines:
-    #         draw.text((10, y), line, fill='black', font=font)
-    #         y += 15
-
-    #     image_stream = BytesIO()
-    #     image.save(image_stream, format='JPEG', quality=95)
-    #     return image_stream
