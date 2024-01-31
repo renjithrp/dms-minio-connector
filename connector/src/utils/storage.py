@@ -252,21 +252,6 @@ class Storage:
                 with ThreadPoolExecutor() as executor:
                     future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
                 return image_stream
-                # for i, image in enumerate(images):
-                #     current_page = i + 1
-                #     resized_image = image.resize((int(image.width * scale), int(image.height * scale)))
-                #     image_stream = BytesIO()
-                #     resized_image.save(image_stream, 'JPEG', quality=40, optimize=True)
-                #     image_stream.seek(0)
-                #     resized_cache_image_file = f'{file_id}_page_{current_page}.jpeg'
-                #     if current_page == page_number:
-                #         image_to_return = image_stream
-                #         cache_image_file = resized_cache_image_file
-                #     #self.create_cache_image(redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
-                #     with ThreadPoolExecutor() as executor:
-                #         future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
-                        
-                # return send_file(image_to_return, mimetype='image/jpeg', download_name=cache_image_file)
         except Exception as e:
             print(f"Error processing DOC")
             return None
