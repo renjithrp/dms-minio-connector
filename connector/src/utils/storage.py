@@ -4,7 +4,7 @@ import os
 import PyPDF2
 from flask import  send_file
 from pdf2image import convert_from_bytes
-from utils.common import file_response, json_response
+from utils.common import file_response, json_response, update_cache, get_cache
 from flask import current_app
 from metrics import * 
 from concurrent.futures import ThreadPoolExecutor
@@ -59,32 +59,36 @@ class Storage:
         tags = get_tags(self.client, self.bucket_name, object_name)
         stream, content_type, _ = get_object_stream(self.client, self.bucket_name, object_name, BytesIO())
         page_length = 1
-        print(content_type)
+        
         try:
-            stream.seek(0)
-            file_size = stream.getbuffer().nbytes
-            if content_type == 'application/pdf':
-                pdf_reader = PyPDF2.PdfReader(stream)
-                page_length = len(pdf_reader.pages)
-            elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
-                page_length = self.get_doc_page_count(file_id, stream)
-            epoch_time = time.time()
+            cache_key=f'{file_id}_stats'
+            data = get_cache(cache_key)
+            if data == None:
+                stream.seek(0)
+                file_size = stream.getbuffer().nbytes
+                if content_type == 'application/pdf':
+                    pdf_reader = PyPDF2.PdfReader(stream)
+                    page_length = len(pdf_reader.pages)
+                elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+                    page_length = self.get_doc_page_count(file_id, stream)
+                epoch_time = time.time()
 
-            data = {
-                "tenant_id": tags.get('tenant_id'),
-                "cid": object_name,
-                "deleted": tags.get('deleted'),
-                "content_status": tags.get('content_status'),
-                "size": file_size,
-                "page_count": page_length,
-                "replica_count": "0",
-                "mime_type": content_type,
-                "name": f"{object_name}",
-                "page_wise_get": "true",
-                "parts_count": "0",
-                "time_stamp": int(epoch_time),
-                "replica": "false"
-            }
+                data = {
+                    "tenant_id": tags.get('tenant_id'),
+                    "cid": object_name,
+                    "deleted": tags.get('deleted'),
+                    "content_status": tags.get('content_status'),
+                    "size": file_size,
+                    "page_count": page_length,
+                    "replica_count": "0",
+                    "mime_type": content_type,
+                    "name": f"{object_name}",
+                    "page_wise_get": "true",
+                    "parts_count": "0",
+                    "time_stamp": int(epoch_time),
+                    "replica": "false"
+                }
+                update_cache(cache_key, data)
 
             response_data = {
                 "error": False,

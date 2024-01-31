@@ -4,6 +4,7 @@ from utils.redis import initialize_redis_client
 import time
 from flask import current_app
 from metrics import  redis_failure_counter, redis_duplicate_counter, ping_success_counter, ping_failure_counter
+import json
 
 
 def json_response(data, code=200, headers=None):
@@ -93,6 +94,48 @@ def ping(url=None):
         print(f"Failed to connect to MinIO: {e}")
         return json_response({"error": True, "errorCode": 1, "msg": "!DSS", "data": {"server_name": server_name}})
     
+def update_cache(cache_key, data, expire_time=6000):
+    """
+    Cache a dictionary in Redis.
+
+    Args:
+    - cache_key (str): The key under which the dictionary will be stored in Redis.
+    - data (dict): The dictionary to be stored.
+    - expire_time (int, optional): Time in seconds after which the key will expire. If None, the key will not expire.
+
+    Returns:
+    - bool: True if the operation was successful, False otherwise.
+    """
+    try:
+        redis_client = initialize_redis_client()
+        # Serialize the dictionary to a JSON string
+        redis_client.setex(cache_key, expire_time,  json.dumps(data))
+        return True
+    except Exception as e:
+        print(f"Error caching dictionary in Redis: {e}")
+        return False
+
+def get_cache(cache_key):
+    """
+    Retrieve a cached dictionary from Redis.
+
+    Args:
+    - cache_key (str): The key under which the dictionary is stored in Redis.
+
+    Returns:
+    - dict: The retrieved dictionary, or None if the key does not exist or an error occurs.
+    """
+    try:
+        redis_client = initialize_redis_client()
+        result = redis_client.get(cache_key)
+        if result is None:
+            return None
+        # Deserialize the JSON string back into a Python dictionary
+        return json.loads(result)
+
+    except Exception as e:
+        print(f"Error retrieving cached data from Redis: {e}")
+        return None
 
 def generate_extension_from_content_type(content_type):
     mime_to_extension = {
