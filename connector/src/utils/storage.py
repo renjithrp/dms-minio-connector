@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageDraw, ImageFont
 from pdf2image import convert_from_bytes, convert_from_path
 from utils.convert import convert_to_pdf_soffice
+import time
 
 class Storage:
     def __init__(self):
@@ -67,6 +68,7 @@ class Storage:
                 page_length = len(pdf_reader.pages)
             elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
                 page_length = self.get_doc_page_count(file_id, stream)
+            epoch_time = time.time()
 
             data = {
                 "tenant_id": tags.get('tenant_id'),
@@ -80,7 +82,7 @@ class Storage:
                 "name": f"{object_name}",
                 "page_wise_get": "true",
                 "parts_count": "0",
-                "time_stamp": "1703142821000",  # Need to modify
+                "time_stamp": int(epoch_time),
                 "replica": "false"
             }
 
@@ -235,24 +237,32 @@ class Storage:
             pdf_file = convert_to_pdf_soffice(temp_file_path)
             if pdf_file:
                 try:
-                    images = convert_from_path(pdf_file)
+                    images = convert_from_path(pdf_file, first_page=page_number, last_page=page_number)
                 except Exception as e:
                     raise Exception(f"Error in conversion: {e}")
-                for i, image in enumerate(images):
-                    current_page = i + 1
-                    resized_image = image.resize((int(image.width * scale), int(image.height * scale)))
-                    image_stream = BytesIO()
-                    resized_image.save(image_stream, 'JPEG', quality=40, optimize=True)
-                    image_stream.seek(0)
-                    resized_cache_image_file = f'{file_id}_page_{current_page}.jpeg'
-                    if current_page == page_number:
-                        image_to_return = image_stream
-                        cache_image_file = resized_cache_image_file
-                    #self.create_cache_image(redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
-                    with ThreadPoolExecutor() as executor:
-                        future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
+                image = images[0].resize((int(images[0].width * scale), int(images[0].height * scale)))
+                image_stream = BytesIO()
+                image.save(image_stream, 'JPEG', quality=30, optimize=True)
+                image_stream.seek(0)
+                resized_cache_image_file = f'{file_id}_page_{page_number}.jpeg'
+                with ThreadPoolExecutor() as executor:
+                    future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
+                return image_stream
+                # for i, image in enumerate(images):
+                #     current_page = i + 1
+                #     resized_image = image.resize((int(image.width * scale), int(image.height * scale)))
+                #     image_stream = BytesIO()
+                #     resized_image.save(image_stream, 'JPEG', quality=40, optimize=True)
+                #     image_stream.seek(0)
+                #     resized_cache_image_file = f'{file_id}_page_{current_page}.jpeg'
+                #     if current_page == page_number:
+                #         image_to_return = image_stream
+                #         cache_image_file = resized_cache_image_file
+                #     #self.create_cache_image(redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
+                #     with ThreadPoolExecutor() as executor:
+                #         future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
                         
-                return send_file(image_to_return, mimetype='image/jpeg', download_name=cache_image_file)
+                # return send_file(image_to_return, mimetype='image/jpeg', download_name=cache_image_file)
         except Exception as e:
             print(f"Error processing DOC")
             return None
