@@ -1,26 +1,30 @@
-from utils.minio import connect_minio, put_object, create_tags, get_tags, get_object_stream, upload_object_with_retention
-from io import BytesIO
 import os
-import PyPDF2
-from flask import  send_file
-from pdf2image import convert_from_bytes
-from utils.common import file_response, json_response, update_cache, get_cache
-from flask import current_app
-from metrics import * 
-from concurrent.futures import ThreadPoolExecutor
-from PIL import Image, ImageDraw, ImageFont
-from pdf2image import convert_from_bytes, convert_from_path
-from utils.convert import convert_to_pdf_soffice
 import time
+from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor
+
+import PyPDF2
+from PIL import Image
+from flask import current_app, send_file
+from pdf2image import convert_from_path, convert_from_bytes
+from utils.common import file_response, json_response, update_cache, get_cache
+from utils.convert import convert_to_pdf_soffice
+from utils.minio import (connect_minio, put_object, create_tags, get_tags,
+                         get_object_stream, upload_object_with_retention)
+from metrics import (file_upload_fail_counter, file_upload_success_counter, 
+                     file_download_fail_counter, file_download_success_counter, 
+                     get_stats_fail_counter, get_stats_success_counter, 
+                     get_pdf_image_fail_counter, get_pdf_image_success_counter)
 
 class Storage:
     def __init__(self):
         self.client = None
+
     def initialize_client(self):
         self.bucket_name = current_app.config.get('MINIO_BUCKET_NAME')
         self.cache_bucket_name = f"{self.bucket_name}-cache"
         self.client = connect_minio()
-        
+
     def upload_file(self, file_id, data, tags=None):
         object_name = f'{file_id}'
         if tags is None:
@@ -33,12 +37,13 @@ class Storage:
         if error is not None:
             create_tags(self.client, self.bucket_name, object_name, {"deleted": "true"})
             print(error)
-            file_upload_fail_counter.labels(file_id=file_id,bucket_name=self.bucket_name).inc()
-            return json_response({"error":True,"errorCode":1,"data":{"cid":f"{file_id}"}})
+            file_upload_fail_counter.labels(file_id=file_id, bucket_name=self.bucket_name).inc()
+            return json_response({"error": True, "errorCode": 1, "data": {"cid": f"{file_id}"}})
         else:
-             print("Success1")
-             file_upload_success_counter.labels(bucket_name=self.bucket_name).inc()
-             return json_response({"error":False,"errorCode":0,"data":{"cid":f"{file_id}"}})
+            print("Success1")
+            file_upload_success_counter.labels(bucket_name=self.bucket_name).inc()
+            return json_response({"error": False, "errorCode": 0, "data": {"cid": f"{file_id}"}})
+
     def download_file(self, file_id):
         object_name = f'{file_id}'
         stream, content_type, _ = get_object_stream(self.client, self.bucket_name, object_name, BytesIO())
@@ -46,24 +51,22 @@ class Storage:
         try:
             stream.seek(0)
             file_download_success_counter.labels(bucket_name=self.bucket_name).inc()
-            return file_response(send_file(stream,
-                         mimetype=content_type,
-                         as_attachment=True,
-                         download_name=file_id))
+            return file_response(send_file(stream, mimetype=content_type, as_attachment=True, download_name=file_id))
         except Exception as e:
             print(e)
-            file_download_fail_counter.labels(file_id=file_id,bucket_name=self.bucket_name).inc()
+            file_download_fail_counter.labels(file_id=file_id, bucket_name=self.bucket_name).inc()
             return None
+
     def get_stats(self, file_id):
         object_name = f'{file_id}'
         tags = get_tags(self.client, self.bucket_name, object_name)
         stream, content_type, _ = get_object_stream(self.client, self.bucket_name, object_name, BytesIO())
         page_length = 1
-        
+
         try:
-            cache_key=f'{file_id}_stats'
+            cache_key = f'{file_id}_stats'
             data = get_cache(cache_key)
-            if data == None:
+            if data is None:
                 stream.seek(0)
                 file_size = stream.getbuffer().nbytes
                 if content_type == 'application/pdf':
@@ -104,7 +107,7 @@ class Storage:
                 "errorCode": 1
             }
             print(e)
-            get_stats_fail_counter.labels(object_name=file_id,bucket_name=self.bucket_name).inc()
+            get_stats_fail_counter.labels(object_name=file_id, bucket_name=self.bucket_name).inc()
             return json_response(error_data, 202)
         
     def pdf_stream_to_image(self, stream, page_number=1, scale=1.4):
@@ -175,7 +178,7 @@ class Storage:
             elif content_type.startswith('image/'):
                 return self.process_image(redis_client, file_id, self.cache_bucket_name, cache_image_file, stream, content_type)
             elif content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
-                return self.process_doc_page(redis_client, file_id, stream, scale=scale, page_number=page_number)
+                return self.process_doc_page(file_id, stream, scale=scale, page_number=page_number)
             else:
                 return None
 
@@ -231,27 +234,44 @@ class Storage:
         except Exception as e:
             Exception(f"Error reading PDF file page count: {e}")
         
-    def process_doc_page(self, redis_client, file_id, stream, scale=1.4, page_number=1):
+    def process_doc_page(self, file_id, stream, scale=1.4, page_number=1):
+        print("Processing DOC")
+        temp_file_path = self._create_temp_file(file_id, stream)
+
+        pdf_file = self._convert_to_pdf(temp_file_path)
+        if not pdf_file:
+            print("Error converting DOC to PDF")
+            return None
+
+        return self._process_pdf_page(pdf_file, file_id, page_number, scale)
+
+    def _create_temp_file(self, file_id, stream):
+        temp_file_path = f"{file_id}.docx"
+        if not os.path.exists(temp_file_path):
+            with open(temp_file_path, "wb") as temp_file:
+                temp_file.write(stream.getvalue())
+        return temp_file_path
+
+    def _convert_to_pdf(self, doc_file_path):
         try:
-            print(f"Processing DOC")
-            temp_file_path = f"{file_id}.docx"
-            if not os.path.exists(temp_file_path):
-                with open(temp_file_path, "wb") as temp_file:
-                    temp_file.write(stream.getvalue())
-            pdf_file = convert_to_pdf_soffice(temp_file_path)
-            if pdf_file:
-                try:
-                    images = convert_from_path(pdf_file, first_page=page_number, last_page=page_number)
-                except Exception as e:
-                    raise Exception(f"Error in conversion: {e}")
-                image = images[0].resize((int(images[0].width * scale), int(images[0].height * scale)))
-                image_stream = BytesIO()
-                image.save(image_stream, 'JPEG', quality=30, optimize=True)
-                image_stream.seek(0)
-                resized_cache_image_file = f'{file_id}_page_{page_number}.jpeg'
-                with ThreadPoolExecutor() as executor:
-                    future = executor.submit(self.create_cache_image, redis_client, self.client, self.cache_bucket_name, resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
-                return image_stream
+            return convert_to_pdf_soffice(doc_file_path)
         except Exception as e:
-            print(f"Error processing DOC")
+            print(f"Error converting to PDF: {e}")
+            return None
+
+    def _process_pdf_page(self, pdf_file, file_id, page_number, scale):
+        try:
+            images = convert_from_path(pdf_file, first_page=page_number, last_page=page_number)
+            image = images[0].resize((int(images[0].width * scale), int(images[0].height * scale)))
+            image_stream = BytesIO()
+            image.save(image_stream, 'JPEG', quality=30, optimize=True)
+            image_stream.seek(0)
+
+            resized_cache_image_file = f'{file_id}_page_{page_number}.jpeg'
+            with ThreadPoolExecutor() as executor:
+                executor.submit(self.create_cache_image, self.client, self.cache_bucket_name, 
+                                resized_cache_image_file, image_stream.getvalue(), 'image/jpeg')
+            return image_stream
+        except Exception as e:
+            print(f"Error processing PDF page: {e}")
             return None
