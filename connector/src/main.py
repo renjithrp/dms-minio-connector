@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, abort
 from utils.storage import Storage
 from utils.common import ping, get_unique_19_digit_id, json_response
-from utils.redis import initialize_redis_client, initialize_redis_queue
+from utils.redis import initialize_redis_client
 
 storage = Storage()
 app = Flask(__name__)
@@ -14,9 +14,6 @@ def initialize_services():
     """
     # Initialize Redis connection
     initialize_redis_client()
-
-    # nitialize Redis queue
-    initialize_redis_queue()
 
     # Initialize storage client
     storage.initialize_client()
@@ -82,5 +79,5 @@ def before_request():
         authenticate()
 
 if __name__ == '__main__':
-    app.run(debug=True, port=9082, host="0.0.0.0")
+    app.run(debug=True, port=9081, host="0.0.0.0")
 

@@ -1,8 +1,10 @@
 from minio import Minio
+from  minio.retention import Retention
 import io
-from minio.commonconfig import Tags
+from minio.commonconfig import Tags, GOVERNANCE
 from io import BytesIO
 import magic
+from datetime import datetime, timedelta
 from flask import current_app
 from metrics import minio_connection_fail_counter, minio_upload_fail_counter, minio_upload_success_counter, minio_get_stream_fail_counter, minio_get_stream_success_counter
 
@@ -30,6 +32,21 @@ def does_object_exist(client, bucket_name, object_name):
     except:
         return False
 
+def create_bucket_if_not_exists(client, bucket_name, object_lock=False):
+    try:
+        # Check if the bucket already exists
+        found = client.bucket_exists(bucket_name)
+        if not found:
+            # Create the bucket
+            client.make_bucket(bucket_name, object_lock=object_lock)
+            print(f"Bucket '{bucket_name}' created successfully.")
+        else:
+            print(f"Bucket '{bucket_name}' already exists.")
+    except Exception as e:
+        print(f"Bucket creation failed {bucket_name} {e}")
+
+
+
 def get_content_type(data):
     try:
         mime = magic.Magic(mime=True)
@@ -41,7 +58,12 @@ def get_content_type(data):
 def upload_object(client, bucket_name, object_name, data, content_type):
     data_stream = io.BytesIO(data)
     client.put_object(bucket_name, object_name, data_stream, len(data), content_type=content_type)
-    
+
+def upload_object_with_retention(client, bucket_name, object_name, data, content_type):
+    date = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0,) + timedelta(days=30)
+    data_stream = io.BytesIO(data)
+    client.put_object(bucket_name, object_name, data_stream, len(data), content_type=content_type, retention=Retention(GOVERNANCE, date), legal_hold=True)
+
 def put_object(client, bucket_name, object_name, data, tags=None):
     if tags is None:
         tags = {}

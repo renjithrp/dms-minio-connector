@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Set the default command to run your application
-CMD ["python", "src/main.py"]
+CMD ["bash", "connector/run.sh"]
 
 # Expose the port the app runs on
-EXPOSE 9082
+EXPOSE 9081
